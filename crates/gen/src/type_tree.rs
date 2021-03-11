@@ -80,22 +80,18 @@ impl TypeTree {
 
     pub fn include_method(&self, signature: &MethodSignature) -> bool {
         for kind in signature.dependencies() {
-            if !self.includes(&kind) {
+            let namespace = kind.namespace();
+
+            if namespace.is_empty() {
+                return true;
+            }
+    
+            if !self.includes_namespace_type(namespace, &kind) {
                 return false;
             }
         }
 
         true
-    }
-
-    pub fn includes(&self, kind: &ElementType) -> bool {
-        let namespace = kind.namespace();
-
-        if namespace.is_empty() {
-            return true;
-        }
-
-        self.includes_namespace_type(namespace, kind)
     }
 
     fn includes_namespace_type(&self, namespace: &str, kind: &ElementType) -> bool {
