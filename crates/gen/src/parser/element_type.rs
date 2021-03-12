@@ -2,7 +2,6 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub enum ElementType {
-    NotYetSupported,
     Void,
     Bool,
     Char,
@@ -36,6 +35,9 @@ pub enum ElementType {
     Struct(types::Struct),
     Delegate(types::Delegate),
     Callback(types::Callback),
+
+    NotYetSupported,
+    NotGenerated(tables::TypeDef),
 }
 
 impl ElementType {
@@ -334,7 +336,8 @@ impl ElementType {
         }
     }
 
-    pub fn dependencies(&self) -> Vec<ElementType> {
+    // tODO: should return Vec<(ElementType, TypeInclusion)> where methods params are NotIncluded
+    pub fn dependencies(&self) -> Vec<(ElementType, TypeInclusion)> {
         match self {
             Self::Function(t) => t.dependencies(),
             Self::Class(t) => t.dependencies(),
@@ -347,18 +350,18 @@ impl ElementType {
         }
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
         match self {
-            Self::Class(t) => t.definition(),
-            Self::Interface(t) => t.definition(),
-            Self::ComInterface(t) => t.definition(),
-            Self::Struct(t) => t.definition(),
-            Self::Delegate(t) => t.definition(),
-            Self::Callback(t) => t.definition(),
-            Self::Enum(t) => t.definition(),
+            Self::Class(t) => t.definition(inclusion),
+            Self::Interface(t) => t.definition(inclusion),
+            Self::ComInterface(t) => t.definition(inclusion),
+            Self::Struct(t) => t.definition(inclusion),
+            Self::Delegate(t) => t.definition(inclusion),
+            Self::Callback(t) => t.definition(inclusion),
+            Self::Enum(t) => t.definition(inclusion),
             // TODO: find a cleaner way to map this dependency
             Self::Matrix3x2 => {
-                vec![TypeReader::get().resolve_type("Windows.Foundation.Numerics", "Matrix3x2")]
+                vec![(TypeReader::get().resolve_type("Windows.Foundation.Numerics", "Matrix3x2"), inclusion)]
             }
             _ => Vec::new(),
         }
@@ -494,7 +497,7 @@ mod tests {
     #[test]
     fn test_struct() {
         let t = TypeReader::get().resolve_type("Windows.Win32.Dxgi", "DXGI_FRAME_STATISTICS_MEDIA");
-        let d = t.definition();
+        let d = t.definition(TypeInclusion::Included);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].name(), "DXGI_FRAME_STATISTICS_MEDIA");
 
@@ -507,7 +510,7 @@ mod tests {
     fn test_enum() {
         let t =
             TypeReader::get().resolve_type("Windows.Win32.Dxgi", "DXGI_FRAME_PRESENTATION_MODE");
-        let d = t.definition();
+        let d = t.definition(TypeInclusion::Included);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].name(), "DXGI_FRAME_PRESENTATION_MODE");
 
@@ -518,7 +521,7 @@ mod tests {
     #[test]
     fn test_com_interface() {
         let t = TypeReader::get().resolve_type("Windows.Win32.Direct2D", "ID2D1Resource");
-        let d = t.definition();
+        let d = t.definition(TypeInclusion::Included);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].name(), "ID2D1Resource");
 
@@ -529,7 +532,7 @@ mod tests {
     #[test]
     fn test_winrt_interface() {
         let t = TypeReader::get().resolve_type("Windows.Foundation", "IUriRuntimeClassFactory");
-        let d = t.definition();
+        let d = t.definition(TypeInclusion::Included);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].name(), "IUriRuntimeClassFactory");
 
@@ -540,7 +543,7 @@ mod tests {
     #[test]
     fn test_winrt_interface2() {
         let t = TypeReader::get().resolve_type("Windows.Foundation", "IAsyncAction");
-        let d = t.definition();
+        let d = t.definition(TypeInclusion::Included);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].name(), "IAsyncAction");
 
@@ -552,7 +555,7 @@ mod tests {
     #[test]
     fn test_winrt_delegate() {
         let t = TypeReader::get().resolve_type("Windows.Foundation", "AsyncActionCompletedHandler");
-        let d = t.definition();
+        let d = t.definition(TypeInclusion::Included);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].name(), "AsyncActionCompletedHandler");
 
@@ -568,7 +571,7 @@ mod tests {
     #[test]
     fn test_win32_function() {
         let t = TypeReader::get().resolve_type("Windows.Win32.WindowsAndMessaging", "EnumWindows");
-        assert_eq!(t.definition().len(), 0);
+        assert_eq!(t.definition(TypeInclusion::Included).len(), 0);
 
         let mut d = t.dependencies();
         assert_eq!(d.len(), 3);
@@ -583,14 +586,14 @@ mod tests {
     #[test]
     fn test_win32_constant() {
         let t = TypeReader::get().resolve_type("Windows.Win32.Dxgi", "DXGI_USAGE_SHADER_INPUT");
-        assert_eq!(t.definition().len(), 0);
+        assert_eq!(t.definition(TypeInclusion::Included).len(), 0);
         assert_eq!(t.dependencies().len(), 0);
     }
 
     #[test]
     fn test_win32_callback() {
         let t = TypeReader::get().resolve_type("Windows.Win32.MenusAndResources", "WNDENUMPROC");
-        let d = t.definition();
+        let d = t.definition(TypeInclusion::Included);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].name(), "WNDENUMPROC");
 

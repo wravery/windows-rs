@@ -152,10 +152,6 @@ impl MethodDef {
             return_type,
         }
     }
-
-    pub fn dependencies(&self, generics: &[ElementType]) -> Vec<ElementType> {
-        self.signature(generics).dependencies()
-    }
 }
 
 impl std::fmt::Debug for MethodDef {

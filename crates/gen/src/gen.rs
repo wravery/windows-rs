@@ -1,42 +1,15 @@
 use super::*;
 use std::iter::FromIterator;
 
-pub struct Gen<'a> {
-    relation: GenRelation,
-    tree: &'a TypeTree,
-}
-
-pub enum GenRelation {
+pub enum Gen {
     Absolute,
     Relative(&'static str),
 }
 
-impl<'a> Gen<'a> {
-    pub fn relative(namespace: &'static str, tree: &'a TypeTree) -> Self {
-        Self {
-            relation: GenRelation::Relative(namespace),
-            tree,
-        }
-    }
-
-    pub fn absolute(tree: &'a TypeTree) -> Self {
-        Self {
-            relation: GenRelation::Absolute,
-            tree,
-        }
-    }
-
-    pub fn include_method(&self, signature: &MethodSignature) -> bool {
-        if let GenRelation::Absolute = self.relation {
-            return true;
-        }
-
-        self.tree.include_method(signature)
-    }
-
+impl Gen {
     pub fn namespace(&self, namespace: &str) -> TokenStream {
-        match self.relation {
-            GenRelation::Absolute => {
+        match self {
+            Self::Absolute => {
                 let mut tokens = TokenStream::new();
 
                 for namespace in namespace.split('.') {
@@ -47,8 +20,8 @@ impl<'a> Gen<'a> {
 
                 tokens
             }
-            GenRelation::Relative(relative) => {
-                if namespace == relative {
+            Self::Relative(relative) => {
+                if namespace == *relative {
                     return TokenStream::new();
                 }
 

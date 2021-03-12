@@ -4,8 +4,8 @@ use super::*;
 pub struct Enum(pub tables::TypeDef);
 
 impl Enum {
-    pub fn definition(&self) -> Vec<ElementType> {
-        vec![ElementType::Enum(self.clone())]
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        vec![(ElementType::Enum(self.clone()), inclusion)]
     }
 
     pub fn type_signature(&self) -> String {

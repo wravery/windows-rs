@@ -15,6 +15,109 @@ pub struct TypeReader {
     types: BTreeMap<String, BTreeMap<String, TypeRow>>,
 
     nested: BTreeMap<Row, BTreeMap<String, Row>>,
+
+    // TODO: replaces `types` field above
+    tree: TypeTree2,
+}
+
+// TODO: replaces public TypeTree but keep it private and only expose methods
+// on TypeReader itself - including gen()
+struct TypeTree2 {
+    pub namespace: String,
+    pub types: BTreeMap<String, (TypeRow, TypeInclusion)>,
+    pub namespaces: BTreeMap<String, TypeTree2>,
+}
+
+impl TypeTree2 {
+    pub fn new(namespace: &str) -> Self {
+        Self {
+            namespace : namespace.to_string(),
+            types: BTreeMap::default(),
+            namespaces: BTreeMap::default(),
+        }
+    }
+
+    pub fn add_type(&mut self, namespace: &str, name: &str, def: TypeRow) {
+        self.add_type_impl(namespace, 0, name, def)
+    }
+
+    pub fn remove_type(&mut self, namespace: &str, name: &str) {
+        if let Some(next) = namespace.find('.') {
+            if let Some(tree) = self.namespaces.get_mut(&namespace[..next]) {
+                tree.remove_type(&namespace[next + 1..], name);
+            }
+        } else {
+            if let Some(tree) = self.namespaces.get_mut(namespace) {
+                tree.types.remove(name);
+            }
+        }
+    }
+
+    pub fn include_types(&mut self, types: &[String]) {
+        if types.is_empty() {
+            for pair in self.types.values_mut() {
+                pair.1 = TypeInclusion::Included;
+            }
+        } else {
+            for name in types {
+                if let Some(pair) = self.types.get_mut(name) {
+                    pair.1 = TypeInclusion::Included;
+                } else {
+                    // TODO: this needs to return a syntax error so the point of failure is highlighted.
+                    panic!("Could not find type {}.{}", self.namespace, name);
+                }
+            }
+        }
+    }
+
+    pub fn find_type(&self, namespace: &str, name: &str) -> Option<(TypeRow, TypeInclusion)> {
+        if let Some(next) = namespace.find('.') {
+            if let Some(tree) = self.namespaces.get(&namespace[..next]) {
+                return tree.find_type(&namespace[next + 1..], name);
+            }
+        } else {
+            if let Some(tree) = self.namespaces.get(namespace) {
+                return tree.types.get(name).map(|pair| *pair);
+            }
+        }
+
+        None
+    }
+
+    pub fn find_lower_namespace(&mut self, namespace: &str) -> Option<&mut TypeTree2> {
+        if let Some(next) = namespace.find('.') {
+            for (name, tree) in &mut self.namespaces {
+                if name.to_lowercase() == &namespace[..next] {
+                    return tree.find_lower_namespace(&namespace[next + 1..]);
+                }
+            }
+        } else {
+            for (name, tree) in &mut self.namespaces {
+                if name.to_lowercase() == namespace {
+                    return Some(tree);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn add_type_impl(&mut self, namespace: &str, pos: usize, name: &str, def: TypeRow) {
+        if let Some(next) = namespace[pos..].find('.') {
+            let next = pos + next;
+            self.namespaces
+                .entry(namespace[pos..next].to_string())
+                .or_insert_with(|| Self::new(&namespace[..next]))
+                .add_type_impl(namespace, next + 1, name, def);
+        } else {
+            self.namespaces
+                .entry(namespace[pos..].to_string())
+                .or_insert_with(|| Self::new(namespace))
+                .types
+                .entry(name.to_string())
+                .or_insert_with(|| (def, TypeInclusion::NotIncluded));
+        }
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -24,8 +127,15 @@ enum TypeRow {
     Constant(Row),
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum TypeInclusion {
+    Included, // the type will be generated
+    NotIncluded, // the type will be omitted
+    NotGenerated, // the type will be declared as NotGenerated<T>
+}
+
 impl TypeReader {
-    pub fn get() -> &'static Self {
+    pub fn get() -> &'static mut Self {
         use std::{mem::MaybeUninit, sync::Once};
         static ONCE: Once = Once::new();
         static mut VALUE: MaybeUninit<TypeReader> = MaybeUninit::uninit();
@@ -36,7 +146,7 @@ impl TypeReader {
         });
 
         // This is safe because `call_once` has already been called.
-        unsafe { &*VALUE.as_ptr() }
+        unsafe { &mut *VALUE.as_mut_ptr() }
     }
 
     /// Insert WinRT metadata at the given paths
@@ -62,10 +172,12 @@ impl TypeReader {
             files,
             types: BTreeMap::default(),
             nested: BTreeMap::default(),
+            tree: TypeTree2::new(""),
         };
 
         let mut types = BTreeMap::<String, BTreeMap<String, TypeRow>>::default();
         let mut nested = BTreeMap::<Row, BTreeMap<String, Row>>::new();
+        let mut tree = TypeTree2::new("");
 
         for (index, file) in reader.files.iter().enumerate() {
             let index = index as u16;
@@ -100,6 +212,8 @@ impl TypeReader {
                     .entry(name.to_string())
                     .or_insert_with(|| TypeRow::TypeDef(def));
 
+                tree.add_type(namespace, name, TypeRow::TypeDef(def));
+
                 if flags.interface() || flags.windows_runtime() {
                     continue;
                 }
@@ -120,6 +234,8 @@ impl TypeReader {
                         .or_default()
                         .entry(name.to_string())
                         .or_insert_with(|| TypeRow::Constant(field));
+
+                    tree.add_type(namespace, name, TypeRow::Constant(field));
                 }
 
                 for method in reader.list(def, TableIndex::MethodDef, 5) {
@@ -130,6 +246,8 @@ impl TypeReader {
                         .or_default()
                         .entry(name.to_string())
                         .or_insert_with(|| TypeRow::Function(method));
+
+                    tree.add_type(namespace, name, TypeRow::Function(method));
                 }
             }
 
@@ -168,6 +286,7 @@ impl TypeReader {
             files: reader.files,
             types,
             nested,
+            tree,
         }
     }
 
@@ -178,10 +297,11 @@ impl TypeReader {
             .map(|namespace| namespace.as_str())
     }
 
-    /// Get all the namespace names that the [`TypeReader`] knows about
-    pub fn namespaces(&self) -> impl Iterator<Item = &String> {
-        self.types.keys()
-    }
+    /// Get all the namespace names that the [`TypeReader`] knows about.
+    /// This is used by windows-docs-rs...
+    // pub fn namespaces(&self) -> impl Iterator<Item = &String> {
+    //     self.tree.namespaces.values().map(|tree| tree.namespaces())
+    // }
 
     /// Get all types for a given namespace
     ///
@@ -267,6 +387,15 @@ impl TypeReader {
             tables::TypeDef { reader: self, row }
         } else {
             self.resolve_type_def(type_ref.namespace(), type_ref.name())
+        }
+    }
+
+    pub fn include_types(&mut self, namespace: &str, types: &[String]) {
+        if let Some(tree) = self.tree.find_lower_namespace(namespace) {
+            tree.include_types(types);
+        } else {
+            // TODO: this needs to return a syntax error so the point of failure is highlighted.
+            panic!("Could not find namespace {}", namespace);
         }
     }
 

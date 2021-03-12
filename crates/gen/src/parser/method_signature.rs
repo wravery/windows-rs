@@ -13,13 +13,18 @@ pub struct MethodParam {
 }
 
 impl MethodSignature {
-    pub fn dependencies(&self) -> Vec<ElementType> {
+    pub fn dependencies(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
         self.return_type
             .iter()
-            .map(|s| s.definition())
-            .chain(self.params.iter().map(|p| p.signature.definition()))
+            .map(|s| s.definition(inclusion))
+            .chain(self.params.iter().map(|p| p.signature.definition(inclusion)))
             .flatten()
             .collect()
+    }
+
+    pub fn is_included(&self) -> bool {
+        // TODO: look for any types in the TypeReader that are NotIncluded
+        true
     }
 
     pub fn gen_winrt_constraint(&self, gen: &Gen) -> TokenStream {
@@ -43,7 +48,8 @@ impl MethodSignature {
     // All WinRT ABI methods return an HRESULT while any return type is transformed into a trailing
     // out parameter. This is unlike Win32 methods that don't require this transformation.
     pub fn gen_winrt_abi(&self, gen: &Gen) -> TokenStream {
-        if !gen.include_method(self) {
+        // tODO: call self.reader to check whehter method is included
+        if !self.is_included() {
             return quote! { () };
         }
 
@@ -95,10 +101,6 @@ impl MethodSignature {
         interface: &InterfaceInfo,
         gen: &Gen,
     ) -> TokenStream {
-        if !gen.include_method(self) {
-            return quote! {};
-        }
-
         let params = if interface.kind == InterfaceKind::Composable {
             &self.params[..self.params.len() - 2]
         } else {
@@ -165,6 +167,10 @@ impl MethodSignature {
                 (::windows::Interface::vtable(this).#vtable_offset)(::windows::Abi::abi(this), #(#args,)* #composable_args).ok()
             }
         };
+
+        // TOOD: if !self.is_included() {
+            // return a quote! where the impl panics to not_implemented!
+        //}
 
         match interface.kind {
             InterfaceKind::Default => quote! {

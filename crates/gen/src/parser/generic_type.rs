@@ -35,11 +35,11 @@ impl GenericType {
         }
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
-        let mut definition = vec![ElementType::from_type_def(self.def, Vec::new())];
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        let mut definition = vec![(ElementType::from_type_def(self.def, Vec::new()), inclusion)];
 
         for generic in &self.generics {
-            definition.append(&mut generic.definition());
+            definition.append(&mut generic.definition(inclusion));
         }
 
         definition

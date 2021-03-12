@@ -140,17 +140,17 @@ impl Class {
         result
     }
 
-    pub fn dependencies(&self) -> Vec<ElementType> {
-        let generics = self.0.generics.iter().map(|g| g.definition());
-        let interfaces = self.0.interfaces().map(|i| i.definition());
-        let bases = self.0.bases().map(|b| b.definition());
+    pub fn dependencies(&self) -> Vec<(ElementType, TypeInclusion)> {
+        let generics = self.0.generics.iter().map(|g| g.definition(TypeInclusion::Included));
+        let interfaces = self.0.interfaces().map(|i| i.definition(TypeInclusion::Included));
+        let bases = self.0.bases().map(|b| b.definition(TypeInclusion::Included));
 
         let factories = self.0.def.attributes().filter_map(|attribute| {
             match attribute.name() {
                 "StaticAttribute" | "ActivatableAttribute" | "ComposableAttribute" => {
                     for (_, arg) in attribute.args() {
                         if let parser::ConstantValue::TypeDef(def) = arg {
-                            return Some(ElementType::from_type_def(def, Vec::new()));
+                            return Some((ElementType::from_type_def(def, Vec::new()), TypeInclusion::Included));
                         }
                     }
                 }
@@ -168,8 +168,8 @@ impl Class {
             .collect()
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
-        vec![ElementType::Class(self.clone())]
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        vec![(ElementType::Class(self.clone()), inclusion)]
     }
 
     pub fn gen(&self, gen: &Gen) -> TokenStream {

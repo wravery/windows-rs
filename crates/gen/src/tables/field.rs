@@ -55,8 +55,8 @@ impl Field {
         Signature::from_blob(&mut blob, &[]).expect("Field")
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
-        self.signature().definition()
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        self.signature().definition(inclusion)
     }
 
     pub fn is_blittable(&self) -> bool {

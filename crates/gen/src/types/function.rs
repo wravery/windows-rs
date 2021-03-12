@@ -9,8 +9,8 @@ impl Function {
         quote! { #name }
     }
 
-    pub fn dependencies(&self) -> Vec<ElementType> {
-        self.0.dependencies(&[])
+    pub fn dependencies(&self) -> Vec<(ElementType, TypeInclusion)> {
+        self.0.signature(&[]).dependencies(TypeInclusion::Included)
     }
 
     pub fn gen(&self, gen: &Gen) -> TokenStream {

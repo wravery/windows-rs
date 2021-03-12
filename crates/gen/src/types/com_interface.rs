@@ -4,15 +4,24 @@ use super::*;
 pub struct ComInterface(pub GenericType);
 
 impl ComInterface {
-    pub fn dependencies(&self) -> Vec<ElementType> {
-        self.0
+    pub fn dependencies(&self) -> Vec<(ElementType, TypeInclusion)> {
+        let interfaces = self.0
             .interfaces()
-            .map(|i| ElementType::from_type_def(i.def, Vec::new()))
-            .collect()
+            .map(|i| (ElementType::from_type_def(i.def, Vec::new()), TypeInclusion::Included));
+
+        let methods = self
+            .0
+            .def
+            .methods()
+            .map(|m| m.signature(&self.0.generics).dependencies(TypeInclusion::NotIncluded))
+            .flatten();
+
+        interfaces.chain(methods).collect()
+    
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
-        vec![ElementType::ComInterface(self.clone())]
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        vec![(ElementType::ComInterface(self.clone()), inclusion)]
     }
 
     pub fn interfaces(&self) -> Vec<tables::TypeDef> {
@@ -53,7 +62,7 @@ impl ComInterface {
             .map(|method| {
                 let signature = method.signature(&[]);
 
-                if !gen.include_method(&signature) {
+                if !signature.is_included() {
                     return quote! { () };
                 }
 
@@ -94,10 +103,6 @@ impl ComInterface {
             .map(|(vtable_offset, method)| {
                 let signature = method.signature(&[]);
 
-                if !gen.include_method(&signature) {
-                    return quote! {};
-                }
-
                 let constraints = signature.gen_win32_constraints(&signature.params, gen);
                 let params = signature.gen_win32_params(&signature.params, gen);
 
@@ -126,6 +131,8 @@ impl ComInterface {
                 };
 
                 let vtable_offset = Literal::u32_unsuffixed(vtable_offset as u32 + 3);
+
+                // tODO: if !self.is_included() then emit function that panics
 
                 quote! {
                     pub unsafe fn #name<#constraints>(&self, #params) #return_type {

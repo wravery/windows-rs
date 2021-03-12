@@ -19,30 +19,30 @@ impl Struct {
         result
     }
 
-    pub fn dependencies(&self) -> Vec<ElementType> {
+    pub fn dependencies(&self) -> Vec<(ElementType, TypeInclusion)> {
         // TODO: add tests for each
         match self.0.full_name() {
             ("Windows.Win32.Automation", "BSTR") => vec![
-                self.0
+               ( self.0
                     .reader
-                    .resolve_type("Windows.Win32.Automation", "SysAllocStringLen"),
-                self.0
+                    .resolve_type("Windows.Win32.Automation", "SysAllocStringLen"), TypeInclusion::Included),
+                (self.0
                     .reader
-                    .resolve_type("Windows.Win32.Automation", "SysStringLen"),
-                self.0
+                    .resolve_type("Windows.Win32.Automation", "SysStringLen"), TypeInclusion::Included),
+                (self.0
                     .reader
-                    .resolve_type("Windows.Win32.Automation", "SysFreeString"),
+                    .resolve_type("Windows.Win32.Automation", "SysFreeString"), TypeInclusion::Included),
             ],
-            ("Windows.Foundation.Numerics", "Matrix3x2") => vec![self
+            ("Windows.Foundation.Numerics", "Matrix3x2") => vec![(self
                 .0
                 .reader
-                .resolve_type("Windows.Win32.Direct2D", "D2D1MakeRotateMatrix")],
-            _ => self.0.fields().map(|f| f.definition()).flatten().collect(),
+                .resolve_type("Windows.Win32.Direct2D", "D2D1MakeRotateMatrix"), TypeInclusion::Included)],
+            _ => self.0.fields().map(|f| f.definition(TypeInclusion::Included)).flatten().collect(),
         }
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
-        vec![ElementType::Struct(self.clone())]
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        vec![(ElementType::Struct(self.clone()), inclusion)]
     }
 
     pub fn is_blittable(&self) -> bool {

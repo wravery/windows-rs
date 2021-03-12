@@ -53,28 +53,31 @@ impl Interface {
         result
     }
 
-    pub fn dependencies(&self) -> Vec<ElementType> {
+    pub fn dependencies(&self) -> Vec<(ElementType, TypeInclusion)> {
         let interfaces = self
             .0
             .interfaces()
-            .map(|i| ElementType::from_type_def(i.def, Vec::new()));
+            .map(|i| (ElementType::from_type_def(i.def, Vec::new()), TypeInclusion::Included));
+
+        let inclusion = if self.0.generics.is_empty() {
+            TypeInclusion::NotIncluded
+        } else {
+            TypeInclusion::Included
+        };
 
         let methods = self
             .0
             .def
             .methods()
-            .map(|m| m.dependencies(&self.0.generics))
+            .map(|m| m.signature(&self.0.generics).dependencies(inclusion))
             .flatten();
 
-        if self.0.generics.is_empty() {
-            interfaces.collect()
-        } else {
-            interfaces.chain(methods).collect()
-        }
+        interfaces.chain(methods).collect()
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
-        self.0.definition()
+    // tODO: consider removing
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        self.0.definition(inclusion)
     }
 
     pub fn gen(&self, gen: &Gen) -> TokenStream {

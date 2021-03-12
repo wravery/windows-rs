@@ -13,7 +13,6 @@ pub mod tables;
 mod to_ident;
 mod to_snake;
 mod type_limits;
-mod type_tree;
 pub mod types;
 mod workspace;
 
@@ -27,7 +26,6 @@ pub use r#async::*;
 pub use to_ident::*;
 pub use to_snake::*;
 pub use type_limits::*;
-pub use type_tree::*;
 pub use workspace::*;
 
 // Ideally this would be defined (and used by) the nested macros crate, but this isn't yet supported by Rust.

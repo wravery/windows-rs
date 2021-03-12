@@ -41,8 +41,8 @@ impl Signature {
         })
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
-        self.kind.definition()
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        self.kind.definition(inclusion)
     }
 
     pub fn is_blittable(&self) -> bool {

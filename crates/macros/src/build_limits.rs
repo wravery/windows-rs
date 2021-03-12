@@ -1,5 +1,5 @@
 use super::*;
-use gen::{NamespaceTypes, TypeLimit, TypeLimits, TypeReader, TypeTree};
+use gen::{NamespaceTypes, TypeLimit, TypeReader};
 use std::convert::{TryFrom, TryInto};
 use syn::spanned::Spanned;
 
@@ -7,28 +7,39 @@ pub struct BuildLimits(pub std::collections::BTreeSet<TypesDeclaration>);
 
 impl BuildLimits {
     pub fn to_tokens_string(self) -> Result<String, proc_macro2::TokenStream> {
-        let reader = TypeReader::get();
-        let mut limits = TypeLimits::new(reader);
+        let mut reader = TypeReader::get();
 
         for limit in self.0 {
             let types = limit.types;
             let syntax = limit.syntax;
-            limits.insert(types).map_err(|ns| {
-                syn::Error::new_spanned(syntax, format!("'{}' is not a known namespace", ns))
-                    .to_compile_error()
-            })?;
+
+            // TODO: just get rid of TypeLimit.
+
+            match types.limit {
+                TypeLimit::All => reader.include_types(types.namespace, &[]),
+                TypeLimit::Some(some) => reader.include_types(types.namespace, &some),
+            };
+
+            // reader.insert(types).map_err(|ns| {
+            //     syn::Error::new_spanned(syntax, format!("'{}' is not a known namespace", ns))
+            //         .to_compile_error()
+            // })?;
         }
 
-        let tree = TypeTree::from_limits(reader, &limits);
+        panic!();
 
-        let ts = tree
-            .gen(&tree)
-            .fold(squote::TokenStream::new(), |mut accum, n| {
-                accum.combine(&n);
-                accum
-            });
+        // TODO: scrap the TypeTree altogether and just update the TypeReader and then gen it from there.
 
-        Ok(ts.into_string())
+        // let tree = TypeTree::from_limits(reader, &limits);
+
+        // let ts = tree
+        //     .gen(&tree)
+        //     .fold(squote::TokenStream::new(), |mut accum, n| {
+        //         accum.combine(&n);
+        //         accum
+        //     });
+
+        // Ok(ts.into_string())
     }
 }
 
@@ -68,6 +79,8 @@ impl TryFrom<syn::UseTree> for TypesDeclaration {
 }
 
 impl syn::parse::Parse for BuildLimits {
+    // tODO: don't use Parse trait as it makes it harder to validate input against metadata
+    // as we're parsing.
     fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
         let mut limits = std::collections::BTreeSet::new();
         loop {

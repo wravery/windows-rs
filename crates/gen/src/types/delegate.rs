@@ -12,12 +12,13 @@ impl Delegate {
         }
     }
 
-    pub fn dependencies(&self) -> Vec<ElementType> {
-        self.method().dependencies(&self.0.generics)
+    pub fn dependencies(&self) -> Vec<(ElementType, TypeInclusion)> {
+        self.method().signature(&self.0.generics).dependencies(TypeInclusion::Included)
     }
 
-    pub fn definition(&self) -> Vec<ElementType> {
-        self.0.definition()
+    // TODO: consider removing
+    pub fn definition(&self, inclusion: TypeInclusion) -> Vec<(ElementType, TypeInclusion)> {
+        self.0.definition(inclusion)
     }
 
     fn method(&self) -> tables::MethodDef {
