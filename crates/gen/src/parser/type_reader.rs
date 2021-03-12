@@ -5,18 +5,11 @@ use std::path::PathBuf;
 
 /// A reader of type information from Windows Metadata
 pub struct TypeReader {
-    /// The parsed Windows metadata files the [`TypeReader`] has access to
     pub(crate) files: Vec<File>,
-    /// Types known to this [`TypeReader`]
-    ///
-    /// This is a mapping between namespace names and the types inside
-    /// that namespace. The keys are the namespace and the values is a mapping
-    /// of type names to type definitions
-    types: BTreeMap<String, BTreeMap<String, TypeRow>>,
 
+    // TODO: finally put this in separate struct so we can use TypeDef and &str
     nested: BTreeMap<Row, BTreeMap<String, Row>>,
 
-    // TODO: replaces `types` field above
     tree: TypeTree2,
 }
 
@@ -41,17 +34,6 @@ impl TypeTree2 {
         self.add_type_impl(namespace, 0, name, def)
     }
 
-    pub fn remove_type(&mut self, namespace: &str, name: &str) {
-        if let Some(next) = namespace.find('.') {
-            if let Some(tree) = self.namespaces.get_mut(&namespace[..next]) {
-                tree.remove_type(&namespace[next + 1..], name);
-            }
-        } else {
-            if let Some(tree) = self.namespaces.get_mut(namespace) {
-                tree.types.remove(name);
-            }
-        }
-    }
 
     pub fn include_types(&mut self, types: &[String]) {
         if types.is_empty() {
@@ -170,12 +152,10 @@ impl TypeReader {
 
         let reader = Self {
             files,
-            types: BTreeMap::default(),
             nested: BTreeMap::default(),
             tree: TypeTree2::new(""),
         };
 
-        let mut types = BTreeMap::<String, BTreeMap<String, TypeRow>>::default();
         let mut nested = BTreeMap::<Row, BTreeMap<String, Row>>::new();
         let mut tree = TypeTree2::new("");
 
@@ -206,12 +186,6 @@ impl TypeReader {
                     continue;
                 }
 
-                types
-                    .entry(namespace.to_string())
-                    .or_default()
-                    .entry(name.to_string())
-                    .or_insert_with(|| TypeRow::TypeDef(def));
-
                 tree.add_type(namespace, name, TypeRow::TypeDef(def));
 
                 if flags.interface() || flags.windows_runtime() {
@@ -229,23 +203,11 @@ impl TypeReader {
                 for field in reader.list(def, TableIndex::Field, 4) {
                     let name = reader.str(field, 1);
 
-                    types
-                        .entry(namespace.to_string())
-                        .or_default()
-                        .entry(name.to_string())
-                        .or_insert_with(|| TypeRow::Constant(field));
-
                     tree.add_type(namespace, name, TypeRow::Constant(field));
                 }
 
                 for method in reader.list(def, TableIndex::MethodDef, 5) {
                     let name = reader.str(method, 3);
-
-                    types
-                        .entry(namespace.to_string())
-                        .or_default()
-                        .entry(name.to_string())
-                        .or_insert_with(|| TypeRow::Function(method));
 
                     tree.add_type(namespace, name, TypeRow::Function(method));
                 }
@@ -266,55 +228,27 @@ impl TypeReader {
             }
         }
 
-        let exclude = &[
-            ("Windows.Foundation", "HResult"),
-            ("Windows.Win32.Com", "IUnknown"),
-            ("Windows.Win32.Direct2D", "D2D_MATRIX_3X2_F"),
-            ("Windows.Win32.SystemServices", "LARGE_INTEGER"),
-            ("Windows.Win32.SystemServices", "ULARGE_INTEGER"),
-            // TODO: remove once this is fixed: https://github.com/microsoft/win32metadata/issues/30
-            ("Windows.Win32", "CFunctionDiscoveryNotificationWrapper"),
-        ];
+        // let exclude = &[
+        //     ("Windows.Foundation", "HResult"),
+        //     ("Windows.Win32.Com", "IUnknown"),
+        //     ("Windows.Win32.Direct2D", "D2D_MATRIX_3X2_F"),
+        //     ("Windows.Win32.SystemServices", "LARGE_INTEGER"),
+        //     ("Windows.Win32.SystemServices", "ULARGE_INTEGER"),
+        //     // TODO: remove once this is fixed: https://github.com/microsoft/win32metadata/issues/30
+        //     ("Windows.Win32", "CFunctionDiscoveryNotificationWrapper"),
+        // ];
 
-        for (namespace, name) in exclude {
-            if let Some(value) = types.get_mut(*namespace) {
-                value.remove(*name);
-            }
-        }
+        // for (namespace, name) in exclude {
+        //     if let Some(value) = types.get_mut(*namespace) {
+        //         value.remove(*name);
+        //     }
+        // }
 
         Self {
             files: reader.files,
-            types,
             nested,
             tree,
         }
-    }
-
-    pub fn find_lowercase_namespace(&'static self, lowercase: &str) -> Option<&'static str> {
-        self.types
-            .keys()
-            .find(|namespace| namespace.to_lowercase() == lowercase)
-            .map(|namespace| namespace.as_str())
-    }
-
-    /// Get all the namespace names that the [`TypeReader`] knows about.
-    /// This is used by windows-docs-rs...
-    // pub fn namespaces(&self) -> impl Iterator<Item = &String> {
-    //     self.tree.namespaces.values().map(|tree| tree.namespaces())
-    // }
-
-    /// Get all types for a given namespace
-    ///
-    /// # Panics
-    ///
-    /// Panics if the namespace does not exist
-    pub fn namespace_types(
-        &'static self,
-        namespace: &str,
-    ) -> impl Iterator<Item = ElementType> + '_ {
-        self.types[namespace]
-            .values()
-            .map(move |row| self.to_element_type(row))
     }
 
     // TODO: how to make this return an iterator?
@@ -331,11 +265,7 @@ impl TypeReader {
     }
 
     pub fn resolve_type(&'static self, namespace: &str, name: &str) -> ElementType {
-        if let Some(types) = self.types.get(namespace) {
-            if let Some(row) = types.get(trim_tick(name)) {
-                return self.to_element_type(row);
-            }
-        }
+
 
         panic!("Could not find type `{}.{}`", namespace, name);
     }
@@ -362,14 +292,7 @@ impl TypeReader {
     }
 
     pub fn resolve_type_def(&'static self, namespace: &str, name: &str) -> tables::TypeDef {
-        if let Some(types) = self.types.get(namespace) {
-            if let Some(TypeRow::TypeDef(row)) = types.get(trim_tick(name)) {
-                return tables::TypeDef {
-                    reader: self,
-                    row: *row,
-                };
-            }
-        }
+
 
         panic!("Could not find type def `{}.{}`", namespace, name);
     }
