@@ -1,10 +1,10 @@
 use super::*;
 
-pub struct TableCache {
-    cache: &'static TypeCache,
-    file: &'static File,
-    table: &'static TableData,
-}
+// pub struct FileRow {
+//     pub index: u32,
+//     table: &'static TableData,
+//     file: &'static File,
+// }
 
 #[derive(Default)]
 pub struct TableData {
@@ -89,6 +89,26 @@ impl TableData {
 }
 
 impl File {
+    pub fn u32(&self, row: Row, column: u32) -> u32 {
+        let table = &self.tables[row.table_index as usize];
+        let offset = table.data + row.index * table.row_size + table.columns[column as usize].0;
+        match table.columns[column as usize].1 {
+            1 => self.bytes.copy_as::<u8>(offset) as u32,
+            2 => self.bytes.copy_as::<u16>(offset) as u32,
+            4 => self.bytes.copy_as::<u32>(offset) as u32,
+            _ => self.bytes.copy_as::<u64>(offset) as u32,
+        }
+    }
+
+    pub fn str(&'static self, row: Row, column: u32) -> &'static str {
+        let offset = (self.strings + self.u32(row, column)) as usize;
+        let last = self.bytes[offset..]
+            .iter()
+            .position(|c| *c == b'\0')
+            .unwrap();
+        std::str::from_utf8(&self.bytes[offset..offset + last]).unwrap()
+    }
+
     pub(crate) fn from_bytes(name: String, bytes: Vec<u8>) -> Self {
         let mut file = Self {
             name,
@@ -621,13 +641,13 @@ impl File {
         &self.tables[TableIndex::NestedClass as usize]
     }
 
-    pub(crate) fn type_def_cache(&'static self, cache: &'static TypeCache) -> TableCache {
-        TableCache {
-            cache,
-            file: self,
-            table: &self.tables[TableIndex::TypeDef as usize],
-        }
-    }
+    // pub(crate) fn type_def_cache(&'static self, cache: &'static TypeCache) -> TableCache {
+    //     TableCache {
+    //         cache,
+    //         file: self,
+    //         table: &self.tables[TableIndex::TypeDef as usize],
+    //     }
+    // }
 }
 
 fn section_from_rva(sections: &[ImageSectionHeader], rva: u32) -> &ImageSectionHeader {

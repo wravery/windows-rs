@@ -1,20 +1,19 @@
 use super::*;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 /// A reader of type information from Windows Metadata
 pub struct TypeReader {
     /// The parsed Windows metadata files the [`TypeReader`] has access to
-    pub(crate) files: Vec<File>,
+    pub(crate) files: &'static Vec<File>,
     /// Types known to this [`TypeReader`]
     ///
     /// This is a mapping between namespace names and the types inside
     /// that namespace. The keys are the namespace and the values is a mapping
     /// of type names to type definitions
-    types: BTreeMap<String, BTreeMap<String, TypeRow>>,
+    types: BTreeMap<&'static str, BTreeMap<&'static str, TypeRow>>,
 
-    nested: BTreeMap<Row, BTreeMap<String, Row>>,
+    nested: BTreeMap<Row, BTreeMap<&'static str, Row>>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -32,7 +31,7 @@ impl TypeReader {
 
         ONCE.call_once(|| {
             // This is safe because `Once` provides thread-safe one-time initialization
-            unsafe { VALUE = MaybeUninit::new(Self::from_iter(winmd_paths())) }
+            unsafe { VALUE = MaybeUninit::new(Self::new()) }
         });
 
         // This is safe because `call_once` has already been called.
@@ -44,19 +43,8 @@ impl TypeReader {
     /// # Panics
     ///
     /// This function panics if the if the files where the windows metadata are stored cannot be read.
-    fn from_iter<I: IntoIterator<Item = PathBuf>>(files: I) -> Self {
-        let mut files: Vec<File> = files.into_iter().map(File::new).collect();
-
-        if !files.iter().any(|file| file.name.starts_with("Windows.")) {
-            files.push(File::from_bytes(
-                "Windows.Win32.winmd".to_string(),
-                include_bytes!("../../default/Windows.Win32.winmd").to_vec(),
-            ));
-            files.push(File::from_bytes(
-                "Windows.WinRT.winmd".to_string(),
-                include_bytes!("../../default/Windows.WinRT.winmd").to_vec(),
-            ));
-        }
+    fn new() -> Self {
+        let files = &FileCache::get().0;
 
         let reader = Self {
             files,
@@ -64,17 +52,17 @@ impl TypeReader {
             nested: BTreeMap::default(),
         };
 
-        let mut types = BTreeMap::<String, BTreeMap<String, TypeRow>>::default();
-        let mut nested = BTreeMap::<Row, BTreeMap<String, Row>>::new();
+        let mut types = BTreeMap::<&'static str, BTreeMap<&'static str, TypeRow>>::default();
+        let mut nested = BTreeMap::<Row, BTreeMap<&'static str, Row>>::new();
 
-        for (index, file) in reader.files.iter().enumerate() {
+        for (index, file) in files.iter().enumerate() {
             let index = index as u16;
             let row_count = file.type_def_table().row_count;
 
             for row in 0..row_count {
                 let def = Row::new(row, TableIndex::TypeDef, index);
-                let namespace = reader.str(def, 2);
-                let name = trim_tick(reader.str(def, 1));
+                let namespace = file.str(def, 2);
+                let name = trim_tick(file.str(def, 1));
 
                 if namespace.is_empty() {
                     continue;
@@ -87,7 +75,7 @@ impl TypeReader {
                     ("", "")
                 } else {
                     let extends = Row::new((extends >> 2) - 1, TableIndex::TypeRef, index);
-                    (reader.str(extends, 2), reader.str(extends, 1))
+                    (file.str(extends, 2), file.str(extends, 1))
                 };
 
                 if extends == ("System", "Attribute") {
@@ -95,9 +83,9 @@ impl TypeReader {
                 }
 
                 types
-                    .entry(namespace.to_string())
+                    .entry(namespace)
                     .or_default()
-                    .entry(name.to_string())
+                    .entry(name)
                     .or_insert_with(|| TypeRow::TypeDef(def));
 
                 if flags.interface() || flags.windows_runtime() {
@@ -113,22 +101,22 @@ impl TypeReader {
                 }
 
                 for field in reader.list(def, TableIndex::Field, 4) {
-                    let name = reader.str(field, 1);
+                    let name = file.str(field, 1);
 
                     types
-                        .entry(namespace.to_string())
-                        .or_default()
-                        .entry(name.to_string())
+                    .entry(namespace)
+                    .or_default()
+                    .entry(name)
                         .or_insert_with(|| TypeRow::Constant(field));
                 }
 
                 for method in reader.list(def, TableIndex::MethodDef, 5) {
-                    let name = reader.str(method, 3);
+                    let name = file.str(method, 3);
 
                     types
-                        .entry(namespace.to_string())
-                        .or_default()
-                        .entry(name.to_string())
+                    .entry(namespace)
+                    .or_default()
+                    .entry(name)
                         .or_insert_with(|| TypeRow::Function(method));
                 }
             }
@@ -139,12 +127,12 @@ impl TypeReader {
                 let row = Row::new(row, TableIndex::NestedClass, index);
                 let enclosed = Row::new(reader.u32(row, 0) - 1, TableIndex::TypeDef, index);
                 let enclosing = Row::new(reader.u32(row, 1) - 1, TableIndex::TypeDef, index);
-                let name = reader.str(enclosed, 1);
+                let name = file.str(enclosed, 1);
 
                 nested
                     .entry(enclosing)
                     .or_default()
-                    .insert(name.to_string(), enclosed);
+                    .insert(name, enclosed);
             }
         }
 
@@ -165,7 +153,7 @@ impl TypeReader {
         }
 
         Self {
-            files: reader.files,
+            files,
             types,
             nested,
         }
@@ -175,12 +163,12 @@ impl TypeReader {
         self.types
             .keys()
             .find(|namespace| namespace.to_lowercase() == lowercase)
-            .map(|namespace| namespace.as_str())
+            .map(|namespace| *namespace)
     }
 
     /// Get all the namespace names that the [`TypeReader`] knows about
-    pub fn namespaces(&self) -> impl Iterator<Item = &String> {
-        self.types.keys()
+    pub fn namespaces(&'static self) -> impl Iterator<Item = &'static str> {
+        self.types.keys().map(|namespace| *namespace)
     }
 
     /// Get all types for a given namespace
@@ -284,7 +272,7 @@ impl TypeReader {
     }
 
     /// Read a [`&str`] value from a specific [`Row`] and column
-    pub fn str(&self, row: Row, column: u32) -> &str {
+    pub fn str(&'static self, row: Row, column: u32) -> &'static str {
         let file = &self.files[row.file_index as usize];
         let offset = (file.strings + self.u32(row, column)) as usize;
         let last = file.bytes[offset..]
@@ -476,31 +464,6 @@ impl TypeReader {
             value.clone()
         } else {
             unexpected!();
-        }
-    }
-}
-
-fn winmd_paths() -> Vec<std::path::PathBuf> {
-    let mut windows_path = workspace_windows_dir();
-    windows_path.push("winmd");
-
-    let mut paths = vec![];
-    push_winmd_paths(windows_path, &mut paths);
-    paths
-}
-
-fn push_winmd_paths(dir: std::path::PathBuf, paths: &mut Vec<std::path::PathBuf>) {
-    if let Ok(files) = std::fs::read_dir(dir) {
-        for file in files.filter_map(|file| file.ok()) {
-            if let Ok(file_type) = file.file_type() {
-                if file_type.is_file() {
-                    let path = file.path();
-                    if let Some("winmd") = path.extension().and_then(|extension| extension.to_str())
-                    {
-                        paths.push(file.path());
-                    }
-                }
-            }
         }
     }
 }
