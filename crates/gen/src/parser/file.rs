@@ -1,5 +1,11 @@
 use super::*;
 
+pub struct TableCache {
+    cache: &'static TypeCache,
+    file: &'static File,
+    table: &'static TableData,
+}
+
 #[derive(Default)]
 pub struct TableData {
     pub data: u32,
@@ -613,6 +619,14 @@ impl File {
 
     pub(crate) fn nested_class_table(&self) -> &TableData {
         &self.tables[TableIndex::NestedClass as usize]
+    }
+
+    pub(crate) fn type_def_cache(&'static self, cache: &'static TypeCache) -> TableCache {
+        TableCache {
+            cache,
+            file: self,
+            table: &self.tables[TableIndex::TypeDef as usize],
+        }
     }
 }
 

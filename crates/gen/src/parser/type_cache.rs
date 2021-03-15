@@ -1,10 +1,17 @@
 use super::*;
 
 pub struct TypeCache {
-    files: &'static FileCache,
-
+    // TODO: should be type tree instead
     types: BTreeMap<&'static str, BTreeMap<&'static str, TypeRow>>,
 }
+
+// #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Debug)]
+// pub struct CacheRow {
+//     pub index: u32,
+//     pub table_index: TableIndex,
+//     pub file_index: u16,
+// }
+
 
 enum TypeRow {
     TypeDef((Row, Inclusion)),
@@ -33,6 +40,16 @@ impl TypeCache {
     }
 
     fn new() -> Self {
-        panic!();
+        let files = FileCache::get();
+
+        let mut types = Default::default();
+
+        for (index, file) in files.0.iter().enumerate() {
+
+        }
+
+        Self { 
+            types
+        }
     }
 }
