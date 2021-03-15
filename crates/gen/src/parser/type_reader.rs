@@ -14,10 +14,12 @@ pub struct TypeReader {
     types: BTreeMap<&'static str, BTreeMap<&'static str, TypeRow>>,
 
     nested: BTreeMap<Row, BTreeMap<&'static str, Row>>,
+
+    tree: TypeNamespace,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-enum TypeRow {
+pub enum TypeRow {
     TypeDef(Row),
     Function(Row),
     Constant(Row),
@@ -30,8 +32,9 @@ impl TypeReader {
         static mut VALUE: MaybeUninit<TypeReader> = MaybeUninit::uninit();
 
         ONCE.call_once(|| {
-            // This is safe because `Once` provides thread-safe one-time initialization
+            let time = std::time::Instant::now();
             unsafe { VALUE = MaybeUninit::new(Self::new()) }
+            println!("ELAPSED: {}", time.elapsed().as_secs());
         });
 
         // This is safe because `call_once` has already been called.
@@ -50,10 +53,12 @@ impl TypeReader {
             files,
             types: BTreeMap::default(),
             nested: BTreeMap::default(),
+            tree: TypeNamespace::new(""),
         };
 
         let mut types = BTreeMap::<&'static str, BTreeMap<&'static str, TypeRow>>::default();
         let mut nested = BTreeMap::<Row, BTreeMap<&'static str, Row>>::new();
+        let mut tree = TypeNamespace::new("");
 
         for (index, file) in files.iter().enumerate() {
             let index = index as u16;
@@ -156,6 +161,7 @@ impl TypeReader {
             files,
             types,
             nested,
+            tree,
         }
     }
 
