@@ -1,11 +1,5 @@
 use super::*;
 
-pub enum TypeInclusion {
-    Included, // the type will be generated
-    NotIncluded, // the type will be omitted
-    NotGenerated, // the type will be declared as NotGenerated<T>
-}
-
 // TODO: replaces public TypeTree but keep it private and only expose methods
 // on TypeReader itself - including gen()
 pub struct TypeNamespace {

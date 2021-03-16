@@ -11,11 +11,18 @@ pub struct TypeReader {
     /// This is a mapping between namespace names and the types inside
     /// that namespace. The keys are the namespace and the values is a mapping
     /// of type names to type definitions
-    types: BTreeMap<&'static str, BTreeMap<&'static str, TypeRow>>,
+    types: BTreeMap<&'static str, BTreeMap<&'static str, (TypeRow, TypeInclusion)>>,
 
     nested: BTreeMap<Row, BTreeMap<&'static str, Row>>,
 
     tree: TypeNamespace,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
+pub enum TypeInclusion {
+    Included, // the type will be generated
+    NotIncluded, // the type will be omitted
+    NotGenerated, // the type will be declared as NotGenerated<T>
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
@@ -56,7 +63,7 @@ impl TypeReader {
             tree: TypeNamespace::new(""),
         };
 
-        let mut types = BTreeMap::<&'static str, BTreeMap<&'static str, TypeRow>>::default();
+        let mut types = BTreeMap::<&'static str, BTreeMap<&'static str, (TypeRow, TypeInclusion)>>::default();
         let mut nested = BTreeMap::<Row, BTreeMap<&'static str, Row>>::new();
         let mut tree = TypeNamespace::new("");
 
@@ -91,7 +98,9 @@ impl TypeReader {
                     .entry(namespace)
                     .or_default()
                     .entry(name)
-                    .or_insert_with(|| TypeRow::TypeDef(def));
+                    .or_insert_with(|| (TypeRow::TypeDef(def), TypeInclusion::NotIncluded));
+
+                tree.add_type(namespace, name, TypeRow::TypeDef(def));
 
                 if flags.interface() || flags.windows_runtime() {
                     continue;
@@ -117,7 +126,9 @@ impl TypeReader {
                     .entry(namespace)
                     .or_default()
                     .entry(name)
-                        .or_insert_with(|| TypeRow::Constant(field));
+                        .or_insert_with(|| (TypeRow::Constant(field), TypeInclusion::NotIncluded));
+
+                    tree.add_type(namespace, name, TypeRow::Constant(field));
                 }
 
                 for method in reader.list(def, TableIndex::MethodDef, 5) {
@@ -127,7 +138,9 @@ impl TypeReader {
                     .entry(namespace)
                     .or_default()
                     .entry(name)
-                        .or_insert_with(|| TypeRow::Function(method));
+                        .or_insert_with(|| (TypeRow::Function(method), TypeInclusion::NotIncluded));
+
+                    tree.add_type(namespace, name, TypeRow::Function(method));
                 }
             }
 
@@ -193,7 +206,7 @@ impl TypeReader {
     ) -> impl Iterator<Item = ElementType> + '_ {
         self.types[namespace]
             .values()
-            .map(move |row| self.to_element_type(row))
+            .map(move |row| self.to_element_type(&row.0))
     }
 
     // TODO: how to make this return an iterator?
@@ -212,7 +225,7 @@ impl TypeReader {
     pub fn resolve_type(&'static self, namespace: &str, name: &str) -> ElementType {
         if let Some(types) = self.types.get(namespace) {
             if let Some(row) = types.get(trim_tick(name)) {
-                return self.to_element_type(row);
+                return self.to_element_type(&row.0);
             }
         }
 
@@ -242,7 +255,7 @@ impl TypeReader {
 
     pub fn resolve_type_def(&'static self, namespace: &str, name: &str) -> tables::TypeDef {
         if let Some(types) = self.types.get(namespace) {
-            if let Some(TypeRow::TypeDef(row)) = types.get(trim_tick(name)) {
+            if let Some((TypeRow::TypeDef(row), _)) = types.get(trim_tick(name)) {
                 return tables::TypeDef {
                     reader: self,
                     row: *row,

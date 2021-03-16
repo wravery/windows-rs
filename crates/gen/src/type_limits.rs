@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::BTreeSet;
 
+// TODO: this type seems unecessary - just update the TypeReader directly.
 pub struct TypeLimits {
     reader: &'static TypeReader,
     inner: BTreeSet<NamespaceTypes>,
