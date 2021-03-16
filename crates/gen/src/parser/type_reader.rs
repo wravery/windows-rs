@@ -18,8 +18,8 @@ pub struct TypeReader {
     tree: TypeNamespace,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-pub enum TypeRow {
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
+enum TypeRow {
     TypeDef(Row),
     Function(Row),
     Constant(Row),
@@ -107,6 +107,11 @@ impl TypeReader {
 
                 for field in reader.list(def, TableIndex::Field, 4) {
                     let name = file.str(field, 1);
+
+                    // TODO: https://github.com/microsoft/win32metadata/issues/361
+                    if name == "PEERDIST_RETRIEVAL_OPTIONS_CONTENTINFO_VERSION" {
+                        continue;
+                    }
 
                     types
                     .entry(namespace)
