@@ -19,7 +19,7 @@ pub struct TypeReader {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
-enum TypeRow {
+pub enum TypeRow {
     TypeDef(Row),
     Function(Row),
     Constant(Row),
@@ -34,7 +34,7 @@ impl TypeReader {
         ONCE.call_once(|| {
             let time = std::time::Instant::now();
             unsafe { VALUE = MaybeUninit::new(Self::new()) }
-            println!("ELAPSED: {}", time.elapsed().as_secs());
+            println!("ELAPSED: {}", time.elapsed().as_millis());
         });
 
         // This is safe because `call_once` has already been called.
