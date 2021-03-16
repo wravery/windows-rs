@@ -21,8 +21,6 @@ mod type_flags;
 mod type_kind;
 mod type_reader;
 mod file_cache;
-mod type_cache;
-mod type_namespace;
 
 pub use blob::*;
 pub use codes::*;
@@ -45,5 +43,3 @@ pub use type_flags::*;
 pub use type_kind::*;
 pub use type_reader::*;
 pub use file_cache::*;
-pub use type_cache::*;
-pub use type_namespace::*;

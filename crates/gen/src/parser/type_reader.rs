@@ -14,8 +14,6 @@ pub struct TypeReader {
     types: BTreeMap<&'static str, BTreeMap<&'static str, (TypeRow, TypeInclusion)>>,
 
     nested: BTreeMap<Row, BTreeMap<&'static str, Row>>,
-
-    tree: TypeNamespace,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
@@ -60,12 +58,10 @@ impl TypeReader {
             files,
             types: BTreeMap::default(),
             nested: BTreeMap::default(),
-            tree: TypeNamespace::new(""),
         };
 
         let mut types = BTreeMap::<&'static str, BTreeMap<&'static str, (TypeRow, TypeInclusion)>>::default();
         let mut nested = BTreeMap::<Row, BTreeMap<&'static str, Row>>::new();
-        let mut tree = TypeNamespace::new("");
 
         for (index, file) in files.iter().enumerate() {
             let index = index as u16;
@@ -100,8 +96,6 @@ impl TypeReader {
                     .entry(name)
                     .or_insert_with(|| (TypeRow::TypeDef(def), TypeInclusion::NotIncluded));
 
-                tree.add_type(namespace, name, TypeRow::TypeDef(def));
-
                 if flags.interface() || flags.windows_runtime() {
                     continue;
                 }
@@ -127,8 +121,6 @@ impl TypeReader {
                     .or_default()
                     .entry(name)
                         .or_insert_with(|| (TypeRow::Constant(field), TypeInclusion::NotIncluded));
-
-                    tree.add_type(namespace, name, TypeRow::Constant(field));
                 }
 
                 for method in reader.list(def, TableIndex::MethodDef, 5) {
@@ -139,8 +131,6 @@ impl TypeReader {
                     .or_default()
                     .entry(name)
                         .or_insert_with(|| (TypeRow::Function(method), TypeInclusion::NotIncluded));
-
-                    tree.add_type(namespace, name, TypeRow::Function(method));
                 }
             }
 
@@ -179,8 +169,17 @@ impl TypeReader {
             files,
             types,
             nested,
-            tree,
         }
+    }
+
+    pub fn include_namespace(&'static mut self, namespace: &str) {
+        if let Some(types) = self.types.get_mut(namespace) {
+            for (_, inclusion) in types.values_mut() {
+                *inclusion = TypeInclusion::Included;
+            }
+        }
+
+        panic!("Could not find namespace `{}`", namespace);
     }
 
     pub fn find_lowercase_namespace(&'static self, lowercase: &str) -> Option<&'static str> {
