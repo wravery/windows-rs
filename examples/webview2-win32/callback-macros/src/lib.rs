@@ -108,7 +108,7 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
 
                 Self {
                    vtable: &VTABLE,
-                   count: windows::RefCount::new(),
+                   count: windows::RefCount::new(1),
                    completed: Some(completed),
                 }
             }
@@ -213,7 +213,7 @@ fn impl_event_callback(ast: &CallbackStruct) -> TokenStream {
 
                 Self {
                     vtable: &VTABLE,
-                    count: windows::RefCount::new(),
+                    count: windows::RefCount::new(1),
                     event,
                 }
             }

@@ -4,7 +4,7 @@ use windows::{Abi, Interface};
 
 use bindings::{
     Microsoft::Web::WebView2::Win32 as WebView2,
-    Windows::Win32::SystemServices::{E_NOINTERFACE, E_POINTER, PWSTR, S_OK},
+    Windows::Win32::Foundation::{E_NOINTERFACE, E_POINTER, PWSTR, S_OK},
 };
 
 use super::{pwstr::string_from_pwstr, wait_with_pump};

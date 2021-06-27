@@ -10,15 +10,12 @@ use std::{
 use bindings::{
     Microsoft::Web::WebView2::Win32::*,
     Windows::Win32::{
-        DisplayDevices::{RECT, SIZE},
-        Gdi,
-        HiDpi::{self, PROCESS_DPI_AWARENESS},
-        KeyboardAndMouseInput,
-        SystemServices::{self, E_NOINTERFACE, HINSTANCE, LRESULT, PSTR, PWSTR, S_OK},
-        WinRT::EventRegistrationToken,
-        WindowsAndMessaging::{
-            self, HWND, LPARAM, MSG, SET_WINDOW_POS_FLAGS, SHOW_WINDOW_CMD, WINDOW_LONG_PTR_INDEX,
-            WINDOW_STYLE, WNDCLASSA, WPARAM,
+        Foundation::{E_NOINTERFACE, HWND, LPARAM, LRESULT, PSTR, PWSTR, RECT, S_OK, SIZE, WPARAM},
+        Graphics::Gdi,
+        System::{LibraryLoader, Threading, WinRT::EventRegistrationToken},
+        UI::{
+            HiDpi, KeyboardAndMouseInput,
+            WindowsAndMessaging::{self, MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSA},
         },
     },
 };
@@ -143,14 +140,14 @@ impl FrameWindow {
                     Default::default(),
                     class_name,
                     class_name,
-                    WINDOW_STYLE::WS_OVERLAPPEDWINDOW,
+                    WindowsAndMessaging::WS_OVERLAPPEDWINDOW,
                     WindowsAndMessaging::CW_USEDEFAULT,
                     WindowsAndMessaging::CW_USEDEFAULT,
                     WindowsAndMessaging::CW_USEDEFAULT,
                     WindowsAndMessaging::CW_USEDEFAULT,
                     None,
                     None,
-                    HINSTANCE(SystemServices::GetModuleHandleA(None)),
+                    LibraryLoader::GetModuleHandleA(None),
                     0 as *mut _,
                 )
             }
@@ -206,7 +203,10 @@ impl WebView {
 
             callback::CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
                 Box::new(|environmentcreatedhandler| unsafe {
-                    CreateCoreWebView2Environment(environmentcreatedhandler)
+                    match CreateCoreWebView2Environment(environmentcreatedhandler) {
+                        Ok(()) => S_OK,
+                        Err(err) => err.code()
+                    }
                 }),
                 Box::new(|error_code, environment| {
                     result = error_code.and_some(environment);
@@ -223,7 +223,10 @@ impl WebView {
 
             callback::CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
                 Box::new(move |handler| unsafe {
-                    env_.CreateCoreWebView2Controller(parent, handler)
+                    match env_.CreateCoreWebView2Controller(parent, handler)  {
+                        Ok(()) => S_OK,
+                        Err(err) => err.code()
+                    }
                 }),
                 Box::new(|error_code, controller| {
                     result = error_code.and_some(controller);
@@ -238,28 +241,22 @@ impl WebView {
         let mut client_rect = RECT::default();
         unsafe {
             WindowsAndMessaging::GetClientRect(parent, &mut client_rect);
-            controller
-                .put_Bounds(RECT {
-                    left: 0,
-                    top: 0,
-                    right: size.cx,
-                    bottom: size.cy,
-                })
-                .ok()?;
-            controller.put_IsVisible(true).ok()?;
+            controller.put_Bounds(RECT {
+                left: 0,
+                top: 0,
+                right: size.cx,
+                bottom: size.cy,
+            })?;
+            controller.put_IsVisible(true)?;
         }
 
-        let webview = unsafe {
-            let mut result = None;
-            controller.get_CoreWebView2(&mut result).and_some(result)?
-        };
+        let webview = unsafe { controller.get_CoreWebView2()? };
 
         if !debug {
             unsafe {
-                let mut result = None;
-                let settings = webview.get_Settings(&mut result).and_some(result)?;
-                settings.put_AreDefaultContextMenusEnabled(false).ok()?;
-                settings.put_AreDevToolsEnabled(false).ok()?;
+                let settings = webview.get_Settings()?;
+                settings.put_AreDefaultContextMenusEnabled(false)?;
+                settings.put_AreDevToolsEnabled(false)?;
             }
         }
 
@@ -269,7 +266,7 @@ impl WebView {
 
         let (tx, rx) = mpsc::channel();
         let rx = Arc::new(rx);
-        let thread_id = unsafe { SystemServices::GetCurrentThreadId() };
+        let thread_id = unsafe { Threading::GetCurrentThreadId() };
 
         let webview = WebView {
             controller: Arc::new(WebViewController(controller)),
@@ -291,42 +288,35 @@ impl WebView {
         let bound = webview.clone();
         unsafe {
             let mut _token = EventRegistrationToken::default();
-            webview
-                .webview
-                .add_WebMessageReceived(
-                    callback::WebMessageReceivedEventHandler::create(Box::new(
-                        move |_webview, args| {
-                            if let Some(args) = args {
-                                let mut message = PWSTR::default();
-                                if args.get_WebMessageAsJson(&mut message).is_ok() {
-                                    let message = pwstr::take_pwstr(message);
-                                    if let Ok(value) =
-                                        serde_json::from_str::<InvokeMessage>(&message)
-                                    {
-                                        if let Ok(mut bindings) = bindings.try_lock() {
-                                            if let Some(f) = bindings.get_mut(&value.method) {
-                                                match (*f)(value.params) {
-                                                    Ok(result) => {
-                                                        bound.resolve(value.id, 0, result)
-                                                    }
-                                                    Err(err) => bound.resolve(
-                                                        value.id,
-                                                        1,
-                                                        Value::String(format!("{:#?}", err)),
-                                                    ),
-                                                }
-                                                .unwrap();
+            webview.webview.add_WebMessageReceived(
+                callback::WebMessageReceivedEventHandler::create(Box::new(
+                    move |_webview, args| {
+                        if let Some(args) = args {
+                            let mut message = PWSTR::default();
+                            if args.get_WebMessageAsJson(&mut message).is_ok() {
+                                let message = pwstr::take_pwstr(message);
+                                if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
+                                    if let Ok(mut bindings) = bindings.try_lock() {
+                                        if let Some(f) = bindings.get_mut(&value.method) {
+                                            match (*f)(value.params) {
+                                                Ok(result) => bound.resolve(value.id, 0, result),
+                                                Err(err) => bound.resolve(
+                                                    value.id,
+                                                    1,
+                                                    Value::String(format!("{:#?}", err)),
+                                                ),
                                             }
+                                            .unwrap();
                                         }
                                     }
                                 }
                             }
-                            S_OK
-                        },
-                    ))?,
-                    &mut _token,
-                )
-                .ok()?;
+                        }
+                        S_OK
+                    },
+                ))?,
+                &mut _token,
+            )?;
         }
 
         if webview.frame.is_some() {
@@ -350,10 +340,10 @@ impl WebView {
             ))?;
             let mut token = EventRegistrationToken::default();
             unsafe {
-                webview.add_NavigationCompleted(handler, &mut token).ok()?;
-                webview.Navigate(url).ok()?;
+                webview.add_NavigationCompleted(handler, &mut token)?;
+                webview.Navigate(url)?;
                 let result = wait_with_pump(rx);
-                webview.remove_NavigationCompleted(token).ok()?;
+                webview.remove_NavigationCompleted(token)?;
                 result?;
             }
         }
@@ -361,7 +351,7 @@ impl WebView {
         if let Some(frame) = self.frame.as_ref() {
             let hwnd = *frame.window;
             unsafe {
-                WindowsAndMessaging::ShowWindow(hwnd, SHOW_WINDOW_CMD::SW_SHOW);
+                WindowsAndMessaging::ShowWindow(hwnd, WindowsAndMessaging::SW_SHOW);
                 Gdi::UpdateWindow(hwnd);
                 KeyboardAndMouseInput::SetFocus(hwnd);
             }
@@ -421,15 +411,12 @@ impl WebView {
                 cy: height,
             };
             unsafe {
-                self.controller
-                    .0
-                    .put_Bounds(RECT {
-                        left: 0,
-                        top: 0,
-                        right: width,
-                        bottom: height,
-                    })
-                    .ok()?;
+                self.controller.0.put_Bounds(RECT {
+                    left: 0,
+                    top: 0,
+                    right: width,
+                    bottom: height,
+                })?;
 
                 WindowsAndMessaging::SetWindowPos(
                     *frame.window,
@@ -438,9 +425,9 @@ impl WebView {
                     0,
                     width,
                     height,
-                    SET_WINDOW_POS_FLAGS::SWP_NOACTIVATE
-                        | SET_WINDOW_POS_FLAGS::SWP_NOZORDER
-                        | SET_WINDOW_POS_FLAGS::SWP_NOMOVE,
+                    WindowsAndMessaging::SWP_NOACTIVATE
+                        | WindowsAndMessaging::SWP_NOZORDER
+                        | WindowsAndMessaging::SWP_NOMOVE,
                 );
             }
         }
@@ -462,7 +449,10 @@ impl WebView {
         let js = String::from(js);
         callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
             Box::new(move |handler| unsafe {
-                webview.AddScriptToExecuteOnDocumentCreated(js, handler)
+                match webview.AddScriptToExecuteOnDocumentCreated(js, handler) {
+                    Ok(()) => S_OK,
+                    Err(err) => err.code()
+                }
             }),
             Box::new(|error_code, _id| error_code),
         )?;
@@ -473,7 +463,10 @@ impl WebView {
         let webview = self.webview.clone();
         let js = String::from(js);
         callback::ExecuteScriptCompletedHandler::wait_for_async_operation(
-            Box::new(move |handler| unsafe { webview.ExecuteScript(js, handler) }),
+            Box::new(move |handler| unsafe { match webview.ExecuteScript(js, handler)  {
+                Ok(()) => S_OK,
+                Err(err) => err.code()
+            }}),
             Box::new(|error_code, _result| error_code),
         )?;
         Ok(self)
@@ -554,7 +547,7 @@ impl WebView {
         unsafe {
             match SetWindowLong(
                 hwnd,
-                WINDOW_LONG_PTR_INDEX::GWLP_USERDATA,
+                WindowsAndMessaging::GWLP_USERDATA,
                 match webview {
                     Some(webview) => Box::into_raw(webview) as _,
                     None => 0 as _,
@@ -568,7 +561,7 @@ impl WebView {
 
     fn get_window_webview(hwnd: HWND) -> Option<Box<WebView>> {
         unsafe {
-            let data = GetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX::GWLP_USERDATA);
+            let data = GetWindowLong(hwnd, WindowsAndMessaging::GWLP_USERDATA);
 
             match data {
                 0 => None,
@@ -586,9 +579,7 @@ impl WebView {
 }
 
 fn set_process_dpi_awareness() -> Result<()> {
-    unsafe {
-        HiDpi::SetProcessDpiAwareness(PROCESS_DPI_AWARENESS::PROCESS_PER_MONITOR_DPI_AWARE).ok()?
-    };
+    unsafe { HiDpi::SetProcessDpiAwareness(HiDpi::PROCESS_PER_MONITOR_DPI_AWARE)? };
     Ok(())
 }
 
